@@ -1,6 +1,6 @@
 import streamlit as st
 import uuid
-from main import build_rag_chain, to_markdown
+from agent.rag import build_rag_chain
 
 # Page config
 st.set_page_config(

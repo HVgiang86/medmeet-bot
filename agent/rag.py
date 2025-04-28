@@ -122,33 +122,5 @@ def build_rag_chain():
     return rag_chain
 
 
-def chat_loop():
-    """Main chat loop function"""
-    rag_chain = build_rag_chain()
-    chat_history = []
-    console.print("[bold blue]MedBot initialized. Ask your health-related questions (type 'exit' to quit).[/bold blue]")
-
-    while True:
-        user_input = console.input("[bold green]You: [/bold green]")
-
-        if user_input.lower() in ["exit", "quit", "bye"]:
-            console.print("[bold blue]MedBot: Goodbye! Take care of your health.[/bold blue]")
-            break
-
-        try:
-            response = rag_chain.invoke({"input": user_input, "chat_history": chat_history})
-
-            # Update chat history
-            chat_history.append(("[user]", user_input))
-            chat_history.append(("[bot]", response["answer"]))
-
-            # Display response
-            console.print("[bold blue]MedBot: [/bold blue]")
-            console.print(to_markdown(response["answer"]))
-
-        except Exception as e:
-            console.print(f"[bold red]Error: {str(e)}[/bold red]")
-
-
-if __name__ == "__main__":
-    chat_loop()
+## global
+rag = build_rag_chain()

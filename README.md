@@ -69,3 +69,100 @@ Then open your browser at http://localhost:8501
 - `app.py` - Streamlit web interface
 - `data/` - Directory for PDF documents
 - `chroma_db/` - Directory where vector database is stored
+
+# AI Chat Backend API
+
+This is a FastAPI application that provides a backend for AI chat conversations using MongoDB.
+
+## Features
+
+- Store AI chat conversations in MongoDB
+- Manage conversations and messages per user
+- RESTful API for creating, reading, updating, and deleting conversations and messages
+
+## API Endpoints
+
+### Conversations
+
+- `GET /api/conversations` - Get all conversations for a user
+- `GET /api/conversations/{conversation_id}` - Get a specific conversation
+- `POST /api/conversations` - Create a new conversation
+- `PUT /api/conversations/{conversation_id}` - Update a conversation's title
+- `DELETE /api/conversations/{conversation_id}` - Delete a conversation and all its messages
+
+### Messages
+
+- `GET /api/conversations/{conversation_id}/messages` - Get messages for a specific conversation
+- `POST /api/conversations/{conversation_id}/messages` - Add a new message to a conversation
+
+## Setup
+
+1. Install dependencies:
+
+   ```
+   poetry add pymongo motor fastapi uvicorn pydantic pydantic-settings
+   ```
+
+2. Configure MongoDB:
+   Create a `.env` file with:
+
+   ```
+   MONGODB_URL=mongodb://localhost:27017
+   MONGODB_DB_NAME=ai_chat
+   ```
+
+3. Run the application:
+   ```
+   python run_api.py
+   ```
+
+## MongoDB Schema
+
+The application uses two collections:
+
+1. `conversations` - Stores conversation metadata
+
+   ```json
+   {
+     "_id": ObjectId,
+     "user_id": ObjectId,
+     "title": String,
+     "created_at": DateTime,
+     "updated_at": DateTime
+   }
+   ```
+
+2. `messages` - Stores individual messages
+   ```json
+   {
+     "_id": ObjectId,
+     "conversation_id": ObjectId,
+     "content": String,
+     "is_user": Boolean,
+     "created_at": DateTime
+   }
+   ```
+
+## API Usage Examples
+
+### Create a new conversation
+
+```bash
+curl -X POST "http://localhost:8000/api/conversations" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "New Chat", "initial_message": "Hello AI!", "user_id": "60d21b4667d0d8992e610c85"}'
+```
+
+### Get messages from a conversation
+
+```bash
+curl -X GET "http://localhost:8000/api/conversations/60d21b4667d0d8992e610c86/messages?user_id=60d21b4667d0d8992e610c85"
+```
+
+### Add a message to a conversation
+
+```bash
+curl -X POST "http://localhost:8000/api/conversations/60d21b4667d0d8992e610c86/messages" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "How does this work?", "is_user": true, "user_id": "60d21b4667d0d8992e610c85"}'
+```
