@@ -1,20 +1,19 @@
-import textwrap
+import asyncio
 import os
-import uuid
-from typing import Dict, List, Tuple, Any, TypedDict
+import textwrap
+from typing import List, Tuple, TypedDict
 
 from dotenv import load_dotenv
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain, history_aware_retriever
+from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.prompts import ChatPromptTemplate
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
 from langchain_community.document_loaders import PyPDFDirectoryLoader
-from langchain_core.documents import Document
-from langchain_core.prompts import MessagesPlaceholder
+from langchain_community.vectorstores import FAISS
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough, RunnableParallel, RunnableLambda
-from langchain_ollama import OllamaLLM, OllamaEmbeddings
+from langchain_core.prompts import MessagesPlaceholder
+from langchain_core.runnables import RunnableLambda
+from langchain_ollama import OllamaEmbeddings
 from pydantic import BaseModel, Field
 from rich.console import Console
 from rich.markdown import Markdown
@@ -50,7 +49,7 @@ def load_documents(directory=DATA_DIRECTORY):
 def get_vectorstore(force_reload=False):
     """Create or load vector database from document chunks"""
     embeddings = OllamaEmbeddings(model="nomic-embed-text")
-    
+
     if os.path.exists(PERSIST_DIRECTORY) and not force_reload:
         console.print("[bold]Loading existing vector database...[/bold]")
         vectorstore = FAISS.load_local(PERSIST_DIRECTORY, embeddings, allow_dangerous_deserialization=True)
@@ -60,25 +59,21 @@ def get_vectorstore(force_reload=False):
         chunks = load_documents()
         if not chunks:
             console.print("[bold yellow]No documents loaded, cannot create vector store.[/bold yellow]")
-            vectorstore = FAISS.from_documents(
-                documents=chunks, # This will be an empty list
-                embedding=embeddings
-            )
+            vectorstore = FAISS.from_documents(documents=chunks,  # This will be an empty list
+                embedding=embeddings)
             console.print("[bold yellow]Created an empty vector database as no documents were found.[/bold yellow]")
 
         else:
-            vectorstore = FAISS.from_documents(
-                documents=chunks, 
-                embedding=embeddings
-            )
+            vectorstore = FAISS.from_documents(documents=chunks, embedding=embeddings)
             console.print(f"[bold green]Created vector database with {len(chunks)} documents[/bold green]")
-        
+
         # Ensure the directory exists before saving
         os.makedirs(PERSIST_DIRECTORY, exist_ok=True)
         vectorstore.save_local(PERSIST_DIRECTORY)
         console.print(f"[bold green]Saved vector database.[/bold green]")
-        
+
     return vectorstore
+
 
 def get_llm_gemini():
     from dotenv import load_dotenv
@@ -97,67 +92,140 @@ def get_llm_gemini():
     if model_name is None:
         model_name = "gemini-2.0-flash"
 
-    llm = ChatGoogleGenerativeAI(
-        model=model_name,
-        temperature=0,
-        max_tokens=None,
-        timeout=None,
-        max_retries=2,
-        google_api_key=api_key
-        #,convert_system_message_to_human=True # Depending on model and Langchain version
+    llm = ChatGoogleGenerativeAI(model=model_name, temperature=0, max_tokens=None, timeout=None, max_retries=2,
+        google_api_key=api_key  # ,convert_system_message_to_human=True # Depending on model and Langchain version
     )
 
     return llm
+
 
 # --- Medical Service Recommendation ---
 class MedicalServicePydantic(BaseModel):
     id: str = Field(description="Unique identifier for the medical service")
     name: str = Field(description="Name of the medical service")
-    description: str = Field(description="Detailed description of the medical service")
-    # Add other relevant fields like category, price_range, etc. if needed
+    description: str = Field(
+        description="Detailed description of the medical service")  # Add other relevant fields like category, price_range, etc. if needed
 
-def fetch_medical_services() -> List[MedicalServicePydantic]:
+
+async def fetch_medical_services() -> List[MedicalServicePydantic]:
     """
-    Mocks a call to an external API to fetch a list of medical services.
-    In a real application, this function would make an HTTP request.
+    Fetch medical services from the external API.
+    Calls the actual API instead of using mocked data.
     """
-    console.print("[bold]Fetching medical services (mocked)...[/bold]")
-    # Mocked data
-    mock_services_data = [
-        {"id": "SRV001", "name": "General Check-up", "description": "A comprehensive general health check-up including basic tests and consultation."},
-        {"id": "SRV002", "name": "Dental Cleaning", "description": "Professional dental cleaning and oral hygiene assessment."},
-        {"id": "SRV003", "name": "Eye Examination", "description": "Complete eye health examination, including vision testing and screening for eye diseases."},
-        {"id": "SRV004", "name": "Physiotherapy Session", "description": "One-hour physiotherapy session for injury rehabilitation or pain management."},
-        {"id": "SRV005", "name": "Dermatology Consultation", "description": "Consultation with a dermatologist for skin conditions."},
-        {"id": "SRV006", "name": "Cardiology Consultation", "description": "Consultation with a cardiologist for heart-related issues."},
-        {"id": "SRV007", "name": "X-Ray Imaging", "description": "Standard X-Ray imaging service for diagnostic purposes."},
-        {"id": "SRV008", "name": "Blood Test Panel (Basic)", "description": "Basic blood test panel covering common health markers."},
-        {"id": "SRV009", "name": "Vaccination (Flu Shot)", "description": "Seasonal influenza vaccination."},
-        {"id": "SRV010", "name": "Mental Health Counseling", "description": "One-hour counseling session with a mental health professional."}
-    ]
-    services = [MedicalServicePydantic(**service) for service in mock_services_data]
-    console.print(f"[bold green]Fetched {len(services)} medical services (mocked)[/bold green]")
-    return services
+    console.print("[bold]Fetching medical services from API...[/bold]")
+
+    try:
+        # Import the actual function from our services
+        from backend.services.medical_service import fetch_medical_services as api_fetch_medical_services
+
+        # Get the actual data from API - returns List[Tuple[str, str]] with (id, name)
+        api_services = await api_fetch_medical_services()
+
+        # Convert to MedicalServicePydantic objects
+        # Since API only returns id and name, we'll use a generic description
+        services = []
+        for service_id, service_name in api_services:
+            service = MedicalServicePydantic(id=service_id, name=service_name,
+                description=f"Medical service: {service_name}"  # Generic description since API doesn't provide it
+            )
+            services.append(service)
+
+        console.print(f"[bold green]Fetched {len(services)} medical services from API[/bold green]")
+        return services
+
+    except Exception as e:
+        console.print(f"[bold red]Error fetching medical services from API: {e}[/bold red]")
+        console.print("[bold yellow]Falling back to mocked data...[/bold yellow]")
+
+        mock_services_data = [
+            {
+                "id": "681249263578fdf93a64a431",
+                "name": "Khoa cơ xương khớp",
+                "description": "Khoa cơ xương khớp"
+            },
+            {
+                "id": "681b316cd239ea73d96e41ae",
+                "name": "Khám chuyên khoa tai mũi họng",
+                "description": "Khám chuyên khoa tai mũi họng"
+            },
+            {
+                "id": "681b31d2d239ea73d96e41de",
+                "name": "Khám da liễu",
+                "description": "Khám da liễu"
+            },
+            {
+                "id": "681c7a0ce776a156ff8878e8",
+                "name": "Khám chuyên khoa tim mạch",
+                "description": "Khám chuyên khoa tim mạch"
+            },
+            {
+                "id": "681c8b9a8c0e58b3475f2df2",
+                "name": "Khám chuyên khoa thần kinh",
+                "description": "Khám chuyên khoa thần kinh"
+            },
+            {
+                "id": "681ebfe92923d8eb1c6e486e",
+                "name": "Gói khám tổng quát tim mạch",
+                "description": "Gói khám tổng quát tim mạch"
+            },
+            {
+                "id": "6820d4993d88166d7eaafb0d",
+                "name": "Khám nội soi tai mũi họng",
+                "description": "Khám nội soi tai mũi họng"
+            },
+            {
+                "id": "6820d4cb3d88166d7eaafb5d",
+                "name": "Gói khám kiểm tra tiêu hóa",
+                "description": "Gói khám kiểm tra tiêu hóa"
+            },
+            {
+                "id": "6820d7e13d88166d7eaafd04",
+                "name": "Khám sản phụ khoa",
+                "description": "Khám sản phụ khoa"
+            },
+            {
+                "id": "6834aca92932943e34bf5d82",
+                "name": "Khám chuyên khoa tai mũi họng",
+                "description": "Khám chuyên khoa tai mũi họng"
+            }
+        ]
+        services = [MedicalServicePydantic(**service) for service in mock_services_data]
+        console.print(f"[bold yellow]Using {len(services)} mocked medical services[/bold yellow]")
+        return services
+
+
+def fetch_medical_services_sync() -> List[MedicalServicePydantic]:
+    """
+    Synchronous wrapper for fetch_medical_services.
+    Used when async execution is not available.
+    """
+    try:
+        return asyncio.run(fetch_medical_services())
+    except Exception as e:
+        console.print(f"[bold red]Error in sync fetch: {e}[/bold red]")
+        # Return empty list or minimal fallback
+        return []
 
 
 class ServiceRecommendationOutput(BaseModel):
     """Output model for the service recommendation chain."""
     recommended_service_ids: List[str] = Field(description="List of recommended medical service IDs")
 
+
 class ChatHistoryInput(TypedDict):
-    chat_history: List[Tuple[str, str]] # Or List[BaseMessage] depending on how you store it
-    input: str
-    # Add medical_services: List[MedicalServicePydantic] if passing directly to the chain
+    chat_history: List[Tuple[str, str]]  # Or List[BaseMessage] depending on how you store it
+    input: str  # Add medical_services: List[MedicalServicePydantic] if passing directly to the chain
+
 
 def format_services_for_prompt(services: List[MedicalServicePydantic]) -> str:
     """Formats the list of medical services into a string for the prompt."""
-    formatted_services = "".join(
-        [f"- ID: {s.id}, Name: {s.name}, Description: {s.description}" for s in services]
-    )
+    formatted_services = "".join([f"- ID: {s.id}, Name: {s.name}, Description: {s.description}" for s in services])
     return formatted_services
+
 
 vectorstore = get_vectorstore()
 retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={'k': 5})
+
 
 # --- Dedicated Service Recommendation Chain ---
 def build_dedicated_service_recommend_chain():
@@ -166,19 +234,15 @@ def build_dedicated_service_recommend_chain():
     This chain uses create_history_aware_retriever for handling chat history.
     """
     llm = get_llm_gemini()
-    embeddings = OllamaEmbeddings(model="nomic-embed-text") 
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
     # 1. Prompt to condense the user's question for service recommendation context
-    CONDENSE_SERVICE_QUESTION_PROMPT = ChatPromptTemplate.from_messages([
-        ("system", "You are an AI assistant. Based on the chat history and the human's follow-up input, rephrase the follow-up input to be a standalone question in English, specifically focused on what medical services might be appropriate. Output only the standalone question."),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}")
-    ])
+    CONDENSE_SERVICE_QUESTION_PROMPT = ChatPromptTemplate.from_messages([("system",
+                                                                          "You are an AI assistant. Based on the chat history and the human's follow-up input, rephrase the follow-up input to be a standalone question in English, specifically focused on what medical services might be appropriate. Output only the standalone question."),
+        MessagesPlaceholder(variable_name="chat_history"), ("human", "{input}")])
 
     # 2. History-aware retriever
-    history_aware_service_retriever = create_history_aware_retriever(
-        llm, retriever, CONDENSE_SERVICE_QUESTION_PROMPT
-    )
+    history_aware_service_retriever = create_history_aware_retriever(llm, retriever, CONDENSE_SERVICE_QUESTION_PROMPT)
 
     # 3. Prompt for the final LLM call to recommend services
     service_recommend_final_prompt_template = """
@@ -202,9 +266,9 @@ def build_dedicated_service_recommend_chain():
 
     # Yêu cầu
     Dựa trên thông tin trên, hãy chọn ra tối đa 3 ID dịch vụ y tế phù hợp nhất từ danh sách trên.
-    Chỉ trả lời bằng một danh sách các ID dịch vụ, mỗi ID trên một dòng. Ví dụ:
-    SRV001
-    SRV003
+    Chỉ trả lời bằng một danh sách các ID dịch vụ, mỗi ID trên một dòng và bắt đầu baăằng ký hiệu ID_. Ví dụ:
+    ID_680f4dd80158fdd3760c435a
+    ID_680f4dd80158fdd3760c435a
 
     Nếu không có dịch vụ nào phù hợp hoặc không chắc chắn, hãy trả lời bằng một dòng trống hoặc không đưa ra ID nào.
     """
@@ -227,29 +291,30 @@ def build_dedicated_service_recommend_chain():
         return "\n".join([f"[{role}] {content}" for role, content in chat_history_tuples])
 
     def parse_llm_output_to_service_ids(llm_output_str: str) -> ServiceRecommendationOutput:
-        ids = [line.strip() for line in llm_output_str.split('\n') if line.strip().startswith("SRV")]
+        ids = [line.strip() for line in llm_output_str.split('\n') if line.strip().startswith("ID_")]
+        ids = [id_.replace("ID_", "").strip() for id_ in ids if id_.startswith("ID_")]
         return ServiceRecommendationOutput(recommended_service_ids=ids)
 
     def format_docs(docs):
         return "\n\n".join(doc.page_content for doc in docs)
 
     # Build the chain
-    chain = (
-        {
-            "input": lambda x: x["input"],
-            "chat_history_str": lambda x: format_history_tuples_to_string(x.get("chat_history", [])),
-            "medical_services": lambda x: format_services_for_prompt(fetch_medical_services()),
-            "context": (
-                lambda x: {"input": x["input"], "chat_history": convert_tuples_to_lc_messages(x.get("chat_history", []))}
-            ) | history_aware_service_retriever | format_docs
-        }
-        | SERVICE_RECOMMEND_FINAL_PROMPT
-        | llm
-        | StrOutputParser()
-        | RunnableLambda(parse_llm_output_to_service_ids)
-    )
-    
+    chain = ({"input": lambda x: x["input"],
+                 "chat_history_str": lambda x: format_history_tuples_to_string(x.get("chat_history", [])),
+                 "medical_services": lambda x: format_services_for_prompt(fetch_medical_services_sync()), "context": (
+                                                                                                                         lambda
+                                                                                                                             x: {
+                                                                                                                             "input":
+                                                                                                                                 x[
+                                                                                                                                     "input"],
+                                                                                                                             "chat_history": convert_tuples_to_lc_messages(
+                                                                                                                                 x.get(
+                                                                                                                                     "chat_history",
+                                                                                                                                     []))}) | history_aware_service_retriever | format_docs} | SERVICE_RECOMMEND_FINAL_PROMPT | llm | StrOutputParser() | RunnableLambda(
+        parse_llm_output_to_service_ids))
+
     return chain
+
 
 # --- END Dedicated Service Recommendation Chain ---
 
@@ -258,26 +323,20 @@ def build_rag_chain():
     """Build the complete RAG chain using modern LangChain patterns"""
     # Get the vectorstore
 
-
     # Initialize LLM
     llm = get_llm_gemini()
     # Query reformulation prompt
-    conversational_prompt = ChatPromptTemplate.from_messages([
-        ("system", """
+    conversational_prompt = ChatPromptTemplate.from_messages([("system", """
         Given a chat history between an AI chatbot and user
         that chatbot's message marked with [bot] prefix and user's message marked with [user] prefix,
         and given the latest user question which might reference context in the chat history,
         formulate a standalone question which can be understood without the chat history.
         Do NOT answer the question, just reformulate it if needed and otherwise return it as is.
         Regardless of the language input, please translate and write it in English.
-        """),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}")
-    ])
+        """), MessagesPlaceholder(variable_name="chat_history"), ("human", "{input}")])
 
     # Response generation prompt
-    rag_prompt = ChatPromptTemplate.from_messages([
-        ("system", """
+    rag_prompt = ChatPromptTemplate.from_messages([("system", """
         # Bối cảnh
 
         Bạn là trợ lý ảo AI về sức khoẻ tên là MedBot.
@@ -291,13 +350,9 @@ def build_rag_chain():
 
         Dưới đây là một số tài liệu Tiếng Anh liên quan:
         {context}
-        """),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}")
-    ])
+        """), MessagesPlaceholder(variable_name="chat_history"), ("human", "{input}")])
 
-    recommend_prompt = ChatPromptTemplate.from_messages([
-        ("system", """
+    recommend_prompt = ChatPromptTemplate.from_messages([("system", """
             # Bối cảnh
 
             Bạn là trợ lý ảo AI về sức khoẻ tên là MedBot.
@@ -330,10 +385,7 @@ def build_rag_chain():
 
             Dưới đây là một số tài liệu Tiếng Anh liên quan:
             {context}
-            """),
-        MessagesPlaceholder(variable_name="chat_history"),
-        ("human", "{input}")
-    ])
+            """), MessagesPlaceholder(variable_name="chat_history"), ("human", "{input}")])
 
     # Create history-aware retriever
     history_aware_retriever = create_history_aware_retriever(llm, retriever, conversational_prompt)
@@ -357,29 +409,20 @@ def build_rag_chain():
 ## global
 rag, recommend = build_rag_chain()
 
-result = recommend.invoke({
-    "input": "Toi bị đau bụng",
-    "chat_history": [],
-})
+result = recommend.invoke({"input": "Toi bị đau bụng", "chat_history": [], })
 
 print(result)
 # rag = build_rag_chain() # recommend is now part of rag's output
 # service_recommend = build_service_recommend_chain() # This was the previous more manual one
-dedicated_service_recommend_chain = build_dedicated_service_recommend_chain() # New dedicated chain
+dedicated_service_recommend_chain = build_dedicated_service_recommend_chain()  # New dedicated chain
 
-chat_history = [
-    ("user", "Tôi bị đau bụng")
-]
+chat_history = [("user", "Tôi bị đau bụng")]
 # Invoke the dedicated service recommendation chain
-response = dedicated_service_recommend_chain.invoke({
-    "input": "Tôi bị đau bụng",
-    "chat_history": chat_history  # List[Tuple[str, str]]
-})
+response = dedicated_service_recommend_chain.invoke(
+    {"input": "Tôi bị đau bụng", "chat_history": chat_history  # List[Tuple[str, str]]
+    })
 
 # Print the recommended service IDs
 print("Recommended Service IDs:")
 for service_id in response.recommended_service_ids:
     print(service_id)
-
-
-

@@ -18,9 +18,19 @@ def _fetch_medical_services_sync() -> List[Tuple[str, str]]:
         HTTPException: If the API call fails or returns invalid data
     """
     api_url = "https://medbe.actvn.live/api/v1/medical-service"
-    
+
+    hdr = {
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
+        'Accept-Encoding': 'none',
+        'Accept-Language': 'en-US,en;q=0.8',
+        'Connection': 'keep-alive'
+    }
+
     try:
-        with urllib.request.urlopen(api_url, timeout=30) as response:
+        request = urllib.request.Request(api_url, headers=hdr)
+        with urllib.request.urlopen(request, timeout=30) as response:
             if response.status != 200:
                 raise HTTPException(
                     status_code=500, 
@@ -40,6 +50,7 @@ def _fetch_medical_services_sync() -> List[Tuple[str, str]]:
             return services
         
     except urllib.error.URLError as e:
+        print(e)
         raise HTTPException(
             status_code=500,
             detail=f"Network error while fetching medical services: {str(e)}"
