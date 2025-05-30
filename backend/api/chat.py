@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body, status
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Tuple
 from bson import ObjectId
 from datetime import datetime
 
@@ -9,11 +9,14 @@ from backend.models.chat import (
     ConversationResponse,
     ConversationUpdate,
     MessageCreate,
-    MessageResponse, QuickMessageResponse, MessageQuickChat
+    MessageResponse, QuickMessageResponse, MessageQuickChat, RecommendResponse,
+    ServiceRecommendationRequest, ServiceRecommendationResponseData,
+    MedicalServicesListResponse, MedicalServiceResponse
 )
 
 from backend.models.responses import BaseResponse
-from agent.rag import rag
+from agent.rag import rag, dedicated_service_recommend_chain, recommend
+from backend.services.medical_service import fetch_medical_services
 
 router = APIRouter()
 
@@ -342,3 +345,215 @@ async def quick_chat(
         message="Message created successfully",
         data=response_data
     )
+
+@router.post("/recommend", response_model=BaseResponse[RecommendResponse])
+async def quick_chat(
+    message: MessageQuickChat,
+):
+    model_chat_history = []
+    ai_msg = "[user]" + message.content
+
+    model_chat_history.append(ai_msg)
+
+    response = recommend.invoke({
+        "input": message.content,
+        "chat_history": model_chat_history[:-1],  # Exclude the current message
+    })
+
+    answer = response["answer"]
+
+    now = datetime.utcnow()
+
+    ## Split answer string by "|"
+    recommendations = [rec.strip() for rec in answer.split("|") if rec.strip()]
+
+    if not recommendations:
+        raise HTTPException(status_code=400, detail="No recommendations found in the response")
+
+    response_data = RecommendResponse(
+        content=recommendations,
+        created_at=now,
+    )
+
+    return BaseResponse(
+        statusCode=status.HTTP_201_CREATED,
+        message="Message created successfully",
+        data=response_data
+    )
+
+@router.post("/conversations/{conversation_id}/recommend", response_model=BaseResponse[RecommendResponse])
+async def recommend_from_conversation(
+    conversation_id: str,
+):
+    """Generate recommendations based on conversation history."""
+    conv_id = validate_object_id(conversation_id)
+
+    # Check if conversation exists
+    conversation = await mongodb.db.conversations.find_one({"_id": conv_id})
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    # Get all messages for the conversation
+    message_cursor = mongodb.db.messages.find(
+        {"conversation_id": conv_id}
+    ).sort("created_at", 1)
+    
+    messages = []
+    async for msg in message_cursor:
+        messages.append(msg)
+
+    if not messages:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Conversation has no messages to base recommendations on.")
+
+    # Build chat history in the format expected by the recommend chain
+    model_chat_history = []
+    for msg in messages:
+        if msg["is_user"]:
+            ai_msg = "[user]" + msg["content"]
+        else:
+            ai_msg = "[bot]" + msg["content"]
+        model_chat_history.append(ai_msg)
+
+    # Find the last user message as input
+    last_user_message = None
+    for msg in reversed(messages):
+        if msg["is_user"]:
+            last_user_message = msg["content"]
+            break
+    
+    if not last_user_message:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user messages found in conversation.")
+
+    # Invoke the recommend chain
+    try:
+        response = recommend.invoke({
+            "input": last_user_message,
+            "chat_history": model_chat_history[:-1] if len(model_chat_history) > 0 else [],
+        })
+
+        answer = response["answer"]
+    except Exception as e:
+        print(f"Error invoking recommend chain: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get recommendations: {str(e)}")
+
+    now = datetime.utcnow()
+
+    # Split answer string by "|"
+    recommendations = [rec.strip() for rec in answer.split("|") if rec.strip()]
+
+    if not recommendations:
+        raise HTTPException(status_code=400, detail="No recommendations found in the response")
+
+    response_data = RecommendResponse(
+        content=recommendations,
+        created_at=now,
+    )
+
+    return BaseResponse(
+        statusCode=status.HTTP_201_CREATED,
+        message="Recommendations created successfully",
+        data=response_data
+    )
+
+@router.post("/conversations/{conversation_id}/service-recommendations", response_model=BaseResponse[ServiceRecommendationResponseData])
+async def recommend_services(
+    conversation_id: str,
+    # request_body: ServiceRecommendationRequest = Body(...) # Use if body params are added
+):
+    """Recommend medical services based on conversation history."""
+    conv_id = validate_object_id(conversation_id)
+
+    # Check if conversation exists
+    conversation = await mongodb.db.conversations.find_one({"_id": conv_id})
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    # Get all messages for the conversation to build history and find the last user message
+    message_cursor = mongodb.db.messages.find(
+        {"conversation_id": conv_id}
+    ).sort("created_at", 1)
+    
+    chat_history_for_chain = []
+    all_messages_in_db = [] # To store full message objects from DB
+    async for msg in message_cursor:
+        all_messages_in_db.append(msg)
+        # Langchain expects history as list of (human_input, ai_response) tuples or BaseMessages
+        # Here, we adapt the stored format [user] content, [bot] content
+        # For the service_recommend chain, we are passing it as (role, content) tuples
+        role = "user" if msg["is_user"] else "bot"
+        chat_history_for_chain.append((role, msg["content"]))
+
+    if not all_messages_in_db:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Conversation has no messages to base recommendations on.")
+
+    # The service_recommend chain expects the current "input" and "chat_history"
+    # We'll use the content of the last message as the current "input".
+    # The chat_history will be all messages *before* the last one.
+    if not chat_history_for_chain:
+         # Should not happen if all_messages_in_db is not empty, but good for safety
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot process empty chat history for recommendations.")
+
+    last_message_content = chat_history_for_chain[-1][1] # Content of the last message
+    history_up_to_last = chat_history_for_chain[:-1] # All messages except the last one
+
+    # Invoke the service recommendation chain
+    try:
+        # The input to the dedicated chain is {"input": str, "chat_history": List[Tuple[str,str]]}
+        recommendation_output = dedicated_service_recommend_chain.invoke({
+            "input": last_message_content, 
+            "chat_history": history_up_to_last
+        })
+        # The chain now returns a ServiceRecommendationOutput Pydantic model directly
+        recommended_ids = recommendation_output.recommended_service_ids
+
+    except Exception as e:
+        # Log the exception for debugging
+        print(f"Error invoking service_recommend chain: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to get service recommendations: {str(e)}")
+
+    response_data = ServiceRecommendationResponseData(
+        recommended_service_ids=recommended_ids
+    )
+
+    return BaseResponse(
+        statusCode=status.HTTP_200_OK,
+        message="Service recommendations retrieved successfully",
+        data=response_data
+    )
+
+@router.get("/medical-services", response_model=BaseResponse[MedicalServicesListResponse])
+async def get_medical_services():
+    """
+    Fetch all available medical services from the external API.
+    
+    Returns:
+        BaseResponse containing list of medical services with id and name
+    """
+    try:
+        services_data = await fetch_medical_services()
+        
+        # Convert tuples to MedicalServiceResponse objects
+        services = [
+            MedicalServiceResponse(id=service_id, name=service_name) 
+            for service_id, service_name in services_data
+        ]
+        
+        response_data = MedicalServicesListResponse(
+            services=services,
+            total_count=len(services)
+        )
+        
+        return BaseResponse(
+            statusCode=status.HTTP_200_OK,
+            message="Medical services retrieved successfully",
+            data=response_data
+        )
+    except HTTPException as e:
+        # Re-raise HTTP exceptions from the service function
+        raise e
+    except Exception as e:
+        # Handle any unexpected errors
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve medical services: {str(e)}"
+        )

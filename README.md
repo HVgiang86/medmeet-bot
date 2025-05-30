@@ -61,14 +61,14 @@ Then open your browser at http://localhost:8501
 ## Configuration
 
 - Place PDF documents in the `data/` directory
-- The vector database is automatically saved to the `chroma_db/` directory
+- The vector database is automatically saved to the `faiss_db/` directory
 
 ## Project Structure
 
 - `main.py` - Core RAG implementation and CLI interface
 - `app.py` - Streamlit web interface
 - `data/` - Directory for PDF documents
-- `chroma_db/` - Directory where vector database is stored
+- `faiss_db/` - Directory where vector database is stored
 
 # AI Chat Backend API
 

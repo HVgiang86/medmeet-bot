@@ -1,4 +1,4 @@
-chroma_db/
+faiss_db/
 .env
 .venv/
 __pycache__/

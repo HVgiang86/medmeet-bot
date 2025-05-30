@@ -93,6 +93,14 @@ class QuickMessageResponse(BaseModel):
         "populate_by_name": True
     }
 
+class RecommendResponse(BaseModel):
+    content: List[str]
+    created_at: datetime
+
+    model_config = {
+        "populate_by_name": True
+    }
+
 class ConversationResponse(BaseModel):
     id: str = Field(alias="_id")
     user_id: str
@@ -102,4 +110,54 @@ class ConversationResponse(BaseModel):
     
     model_config = {
         "populate_by_name": True
-    } 
+    }
+
+class MedicalServicePydantic(BaseModel):
+    id: str = Field(description="Unique identifier for the medical service")
+    name: str = Field(description="Name of the medical service")
+    description: str = Field(description="Detailed description of the medical service")
+
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "SRV001",
+                    "name": "General Check-up",
+                    "description": "A comprehensive general health check-up."
+                }
+            ]
+        }
+    }
+
+class ServiceRecommendationRequest(BaseModel):
+    # conversation_id will be a path parameter, so the body can be empty or used for future params
+    # For now, let's make it expect an empty body or specific future params.
+    # If we strictly want no body, we wouldn't define this model for the request body.
+    pass # No fields expected in the body for now
+
+class ServiceRecommendationResponseData(BaseModel):
+    recommended_service_ids: List[str]
+    created_at: datetime = Field(default_factory=datetime.utcnow) 
+
+class MedicalServiceItem(BaseModel):
+    id: str = Field(alias="_id")
+    name: str
+    
+    model_config = {
+        "populate_by_name": True
+    }
+
+class MedicalServicesApiData(BaseModel):
+    items: List[MedicalServiceItem]
+
+class MedicalServicesApiResponse(BaseModel):
+    data: MedicalServicesApiData
+
+class MedicalServiceResponse(BaseModel):
+    id: str
+    name: str
+
+class MedicalServicesListResponse(BaseModel):
+    services: List[MedicalServiceResponse]
+    total_count: int 

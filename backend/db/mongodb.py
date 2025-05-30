@@ -10,6 +10,8 @@ class MongoDBSettings(BaseSettings):
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_TRACING_V2: str = ""
     LANGCHAIN_PROJECT: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"  # Default model, can be overridden in .env
+    GOOGLE_API_KEY: str = ""  # Required for Gemini model
     
     class Config:
         env_file = ".env"
