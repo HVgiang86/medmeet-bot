@@ -266,7 +266,8 @@ def build_dedicated_service_recommend_chain():
 
     # Yêu cầu
     Dựa trên thông tin trên, hãy chọn ra tối đa 3 ID dịch vụ y tế phù hợp nhất từ danh sách trên.
-    Chỉ trả lời bằng một danh sách các ID dịch vụ, mỗi ID trên một dòng và bắt đầu baăằng ký hiệu ID_. Ví dụ:
+    Chỉ trả lời bằng một danh sách các ID dịch vụ, mỗi ID trên một dòng và bắt đầu bằng ký hiệu ID_. Ví dụ:
+    
     ID_680f4dd80158fdd3760c435a
     ID_680f4dd80158fdd3760c435a
 
