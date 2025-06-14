@@ -17,7 +17,7 @@ def _fetch_medical_services_sync() -> List[Tuple[str, str]]:
     Raises:
         HTTPException: If the API call fails or returns invalid data
     """
-    api_url = "https://medbe.actvn.live/api/v1/medical-service"
+    api_url = "https://medical-center-3kxi.onrender.com/api/v1/medical-service"
 
     hdr = {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11',
@@ -45,7 +45,7 @@ def _fetch_medical_services_sync() -> List[Tuple[str, str]]:
             # Extract id and name from each service item
             services = []
             for item in api_response.data.items:
-                services.append((item.id, item.name))
+                services.append((item.id, item.name, item.description, item.relatedService, item.symptom))
             
             return services
         

@@ -20,4 +20,3 @@ prompt_template_RAG = """
     Nếu không có dịch vụ nào phù hợp hoặc không chắc chắn, hãy trả lời bằng một dòng trống hoặc không đưa ra ID nào.
     """
 """
-

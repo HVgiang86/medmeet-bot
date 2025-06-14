@@ -80,6 +80,8 @@ class MessageResponse(BaseModel):
     content: str
     is_user: bool
     created_at: datetime
+
+    # recommended_service_ids: Optional[List[str]]
     
     model_config = {
         "populate_by_name": True
@@ -116,6 +118,8 @@ class MedicalServicePydantic(BaseModel):
     id: str = Field(description="Unique identifier for the medical service")
     name: str = Field(description="Name of the medical service")
     description: str = Field(description="Detailed description of the medical service")
+    relatedService: str = Field(description="Related service identifier")
+    symptom: str = Field(description="Symptom associated with the medical service")
 
     model_config = {
         "populate_by_name": True,
@@ -143,6 +147,10 @@ class ServiceRecommendationResponseData(BaseModel):
 class MedicalServiceItem(BaseModel):
     id: str = Field(alias="_id")
     name: str
+    description: Optional[str]
+    relatedService: Optional[str]
+    symptom: Optional[str]
+
     
     model_config = {
         "populate_by_name": True

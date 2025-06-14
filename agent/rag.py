@@ -105,6 +105,8 @@ class MedicalServicePydantic(BaseModel):
     name: str = Field(description="Name of the medical service")
     description: str = Field(
         description="Detailed description of the medical service")  # Add other relevant fields like category, price_range, etc. if needed
+    relatedService: str = Field(description="Related service")
+    symptom: str = Field(description="Symptom associated with the service")
 
 
 async def fetch_medical_services() -> List[MedicalServicePydantic]:
@@ -121,12 +123,18 @@ async def fetch_medical_services() -> List[MedicalServicePydantic]:
         # Get the actual data from API - returns List[Tuple[str, str]] with (id, name)
         api_services = await api_fetch_medical_services()
 
+        console.print("[bold green]Successfully fetched medical services from API[/bold green]")
+        if not api_services:
+            console.print("[bold yellow]No medical services found in API response[/bold yellow]")
+            return []
+        console.print(api_services)
+
         # Convert to MedicalServicePydantic objects
         # Since API only returns id and name, we'll use a generic description
         services = []
-        for service_id, service_name in api_services:
+        for service_id, service_name, description, relatedService, symptom in api_services:
             service = MedicalServicePydantic(id=service_id, name=service_name,
-                description=f"Medical service: {service_name}"  # Generic description since API doesn't provide it
+                description=description,  relatedService = relatedService,symptom = symptom  # Generic description since API doesn't provide it
             )
             services.append(service)
 
@@ -248,9 +256,15 @@ def build_dedicated_service_recommend_chain():
     service_recommend_final_prompt_template = """
     # Bối cảnh
     Bạn là một trợ lý AI y tế có tên MedBot.
-    Nhiệm vụ của bạn là đề xuất các dịch vụ y tế phù hợp cho người dùng.
+    Bạn là trợ lý ảo AI về sức khoẻ tên là MedBot.
+    Bạn có kiến thức chuyên sâu về y khoa, y tế, chăm sóc sức khoẻ cá nhân.
+    Nhiệm vụ của bạn là trả lời các câu hỏi của người dùng về vấn đề sức khoẻ cá nhân, tư vấn thăm khám cho người dùng.
+    Nhiệm vụ của bạn cũng có thể là đề xuất các dịch vụ y tế phù hợp dựa trên triệu chứng hoặc câu hỏi của người dùng.
+
     Bạn sẽ nhận được lịch sử trò chuyện, một câu hỏi/yêu cầu cụ thể từ người dùng, và một danh sách các dịch vụ y tế hiện có.
-    Chỉ đề xuất các dịch vụ từ danh sách được cung cấp. Hãy xem xét kỹ lưỡng mô tả của từng dịch vụ để đảm bảo tính phù hợp.
+    Xem xét phần mô tả, triệu chứng đầu vào chỉ định và các tài liệu liên quan để đưa ra đề xuất dịch vụ y tế phù hợp nhất.
+    Chỉ đề xuất các dịch vụ từ danh sách được cung cấp. Nếu không có dịch vụ nào phù hợp, không đề xuất!
+    Hãy xem xét kỹ lưỡng mô tả của từng dịch vụ để đảm bảo tính phù hợp.
 
     # Lịch sử trò chuyện đầy đủ (để tham khảo ngữ cảnh)
     {chat_history_str}
@@ -265,13 +279,16 @@ def build_dedicated_service_recommend_chain():
     {context}
 
     # Yêu cầu
-    Dựa trên thông tin trên, hãy chọn ra tối đa 3 ID dịch vụ y tế phù hợp nhất từ danh sách trên.
+    Trả lời câu hỏi của người dùng. Nếu được yêu cầu, hãy đề xuất các dịch vụ y tế phù hợp nhất.
+    Nếu không được yêu cầu, chỉ trả lời câu hỏi của người dùng.
+    
+    Nếu phải đề xuất dịch vụ y tế, hãy chọn ra tối đa 3 ID dịch vụ y tế phù hợp nhất từ danh sách trên.
     Chỉ trả lời bằng một danh sách các ID dịch vụ, mỗi ID trên một dòng và bắt đầu bằng ký hiệu ID_. Ví dụ:
     
     ID_680f4dd80158fdd3760c435a
     ID_680f4dd80158fdd3760c435a
 
-    Nếu không có dịch vụ nào phù hợp hoặc không chắc chắn, hãy trả lời bằng một dòng trống hoặc không đưa ra ID nào.
+    Nếu không cần đề xuất hoặc không có dịch vụ nào phù hợp hoặc không chắc chắn, hãy trả lời bằng một dòng trống hoặc không đưa ra ID nào.
     """
     SERVICE_RECOMMEND_FINAL_PROMPT = ChatPromptTemplate.from_template(service_recommend_final_prompt_template)
 
@@ -289,9 +306,12 @@ def build_dedicated_service_recommend_chain():
         return messages
 
     def format_history_tuples_to_string(chat_history_tuples: List[Tuple[str, str]]) -> str:
+        console.print("[bold]Formatting chat history for prompt...[/bold]")
+        console.print(chat_history_tuples)
         return "\n".join([f"[{role}] {content}" for role, content in chat_history_tuples])
 
     def parse_llm_output_to_service_ids(llm_output_str: str) -> ServiceRecommendationOutput:
+        ids = []
         ids = [line.strip() for line in llm_output_str.split('\n') if line.strip().startswith("ID_")]
         ids = [id_.replace("ID_", "").strip() for id_ in ids if id_.startswith("ID_")]
         return ServiceRecommendationOutput(recommended_service_ids=ids)
